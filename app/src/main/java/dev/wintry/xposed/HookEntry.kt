@@ -4,6 +4,7 @@ import com.highcapable.yukihookapi.hook.param.PackageParam
 import dev.wintry.xposed.Patches.hookForCallBridge
 import dev.wintry.xposed.Patches.hookScriptLoader
 import dev.wintry.xposed.modules.BubbleModule
+import dev.wintry.xposed.modules.FsModule
 import dev.wintry.xposed.modules.LogBoxModule
 import dev.wintry.xposed.modules.UpdaterModule
 import dev.wintry.xposed.modules.base.HookModule
@@ -25,7 +26,8 @@ class HookEntry {
         val HookModules = listOf<HookModule>(
             UpdaterModule(),
             BubbleModule(),
-            LogBoxModule()
+            LogBoxModule(),
+            FsModule()
         )
     }
 
