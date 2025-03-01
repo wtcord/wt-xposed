@@ -3,6 +3,8 @@ package dev.wintry.xposed
 import com.highcapable.yukihookapi.hook.param.PackageParam
 import dev.wintry.xposed.Patches.hookForCallBridge
 import dev.wintry.xposed.Patches.hookScriptLoader
+import dev.wintry.xposed.modules.BubbleModule
+import dev.wintry.xposed.modules.LogBoxModule
 import dev.wintry.xposed.modules.UpdaterModule
 import dev.wintry.xposed.modules.base.HookModule
 import kotlinx.serialization.json.Json
@@ -21,7 +23,9 @@ class HookEntry {
         }
 
         val HookModules = listOf<HookModule>(
-            UpdaterModule()
+            UpdaterModule(),
+            BubbleModule(),
+            LogBoxModule()
         )
     }
 
@@ -35,6 +39,8 @@ class HookEntry {
 
         hookForCallBridge()
         hookScriptLoader(catalystInstanceImplClass, ::getPayloadString)
+
+        HookModules.forEach { it.onHook(packageParam) }
     }
 
     private fun getPayloadString(): String = Json.encodeToString(buildJsonObject {
