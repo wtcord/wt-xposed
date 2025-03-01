@@ -62,19 +62,3 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }
-
-tasks.register<Exec>("forceStopDiscord") {
-    executable = "adb"
-    args("shell", "am", "force-stop", "com.discord")
-}
-
-tasks.register<Exec>("startDiscord") {
-    dependsOn("forceStopDiscord")
-
-    executable = "adb"
-    args("shell", "am", "start", "-n", "com.discord/.main.MainActivity")
-}
-
-tasks.whenTaskAdded {
-    finalizedBy("startDiscord")
-}

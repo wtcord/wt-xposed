@@ -1,6 +1,7 @@
 package dev.wintry.xposed
 
 import android.widget.Toast
+import com.highcapable.yukihookapi.hook.core.finder.members.MethodFinder
 import com.highcapable.yukihookapi.hook.factory.method
 import com.highcapable.yukihookapi.hook.param.HookParam
 import com.highcapable.yukihookapi.hook.param.PackageParam
@@ -20,8 +21,15 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.float
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.long
 import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.reflect.jvm.javaType
 
 @Serializable
 @OptIn(ExperimentalSerializationApi::class)
@@ -30,6 +38,21 @@ data class CallInfo (
     @JsonNames("f") val function: String,
     @JsonNames("a") val args: ArrayList<JsonPrimitive>,
 )
+
+fun decodeJsonPrimitive(element: JsonPrimitive, clazz: Class<*>, nullable: Boolean): Any? {
+    element.contentOrNull.takeIf { it != null || nullable } ?: throw IllegalArgumentException("Element is null")
+
+    // This may hurt your soul, I'm sorry
+    return when (clazz) {
+        Int::class.java, Int::class.javaObjectType -> element.int
+        Double::class.java, Double::class.javaObjectType -> element.double
+        Float::class.java, Float::class.javaObjectType -> element.float
+        Long::class.java, Long::class.javaObjectType -> element.long
+        Boolean::class.java, Boolean::class.javaObjectType -> element.boolean
+        String::class.java, String::class.javaObjectType -> element.content
+        else -> throw Exception("Unknown type of class ${clazz.simpleName} used for module parameter") // Unsupported type
+    }
+}
 
 object Patches {
     fun PackageParam.hookScriptLoader(
@@ -101,79 +124,75 @@ object Patches {
     // 2. Can we register our own native modules on iOS?
     //
     // This approach still can be optimized (a lot of parsing is done here), but not worth it for now since native functions are only called once in a while
-    @OptIn(ExperimentalCoroutinesApi::class, ExperimentalSerializationApi::class,
-        ExperimentalStdlibApi::class
-    )
-    fun PackageParam.hookForCallBridge() {
+    fun PackageParam.hookImageQueryCache() {
         val imageLoaderModuleClass = "com.facebook.react.modules.image.ImageLoaderModule".toClass()
         val toArrayList = "com.facebook.react.bridge.ReadableNativeArray".toClass().method {
             name = "toArrayList"
         }
-        val makeNativeMap = "com.facebook.react.bridge.Arguments".toClass().method {
-            name = "makeNativeMap"
-            param(MapClass)
-        }.get()
 
         imageLoaderModuleClass.method { name = "queryCache" }
             .hook()
             .before {
                 @Suppress("UNCHECKED_CAST")
                 val uris = toArrayList.get(args[0]).call() as? ArrayList<String> ?: return@before
-                val result = runCatching {
-                    val callInfo = Json.decodeFromString<CallInfo>(uris[1])
+                if (uris.firstOrNull() != "__wintry_bridge" || uris.size <= 1) return@before
 
-                    val acModule = HookModules.find { it.name == callInfo.module } ?: return@before
-                    val acFunction = acModule::class.members.find { it.name == callInfo.function }
-                        ?: return@before
+                val resolvePromise = args[1]?.javaClass?.method { name = "resolve" }?.get(args[1])
+                    ?: return@before
 
-                    acFunction.call(acModule, *callInfo.args.toTypedArray())
-                }.getOrElse { return@before }
+                val makeNativeMap = "com.facebook.react.bridge.Arguments".toClass().method {
+                    name = "makeNativeMap"
+                    param(MapClass)
+                }.get()
 
-                val resolvePromise = args[1]!!.javaClass.method { name = "resolve" }.get(args[1])
-
-                if (result is Deferred<*>) {
-                    @Suppress("UNCHECKED_CAST")
-                    val deferred = result as Deferred<JsonElement>
-                    deferred.invokeOnCompletion { ex ->
-                        val ret = when (ex) {
-                            null -> {
-                                val strRet = runCatching {
-                                    Json.encodeToString(deferred.getCompleted())
-                                }
-                                if (strRet.isSuccess) {
-                                    mapOf("ret" to strRet.getOrThrow())
-                                } else {
-                                    mapOf("err" to strRet.exceptionOrNull()?.stackTraceToString())
-                                }
-                            }
-                            is CancellationException -> {
-                                mapOf(
-                                    "cancelled" to true,
-                                    "reason" to ex.message
-                                )
-                            }
-                            else -> {
-                                mapOf("err" to ex.stackTraceToString())
-                            }
-                        }
-
-                        val nativeMap = makeNativeMap.call(ret)
-                        resolvePromise.call(nativeMap)
-                    }
-                } else {
-                    val nativeMap = makeNativeMap.call(
-                        runCatching {
-                            Json.encodeToString(result as? JsonElement)
-                        }.fold(
-                            { value -> mapOf("ret" to value) },
-                            { error -> mapOf("err" to error.stackTraceToString()) }
-                        )
-                    )
-
-                    resolvePromise.call(nativeMap)
-                }
+                val result = runCatching { processCall(uris[1]) }
+                handleResult(result) { resolvePromise.call(makeNativeMap.call(it)) }
 
                 this.result = null
             }
     }
+
+    private fun processCall(callInfoJson: String): Any? {
+        val callInfo = Json.decodeFromString<CallInfo>(callInfoJson)
+        val acModule = HookModules.find { it.name == callInfo.module } ?: return Unit
+        val acFunction = acModule::class.members.find { it.name == callInfo.function } ?: return Unit
+
+        require(acFunction.parameters.count() - 1 == callInfo.args.count()) { "Invalid number of arguments" }
+
+        return acFunction.call(acModule, *callInfo.args.mapIndexed { i, a ->
+            val type = acFunction.parameters[i + 1].type
+            val clazz = type.javaType as? Class<*>
+            clazz?.takeIf { JsonPrimitive::class.java.isAssignableFrom(it) }?.let { a }
+                ?: decodeJsonPrimitive(a, clazz!!, type.isMarkedNullable)
+        }.toTypedArray())
+    }
+
+    private fun PackageParam.handleResult(result: Result<Any?>, resolvePromise: (Map<*, *>) -> Unit) {
+        if (result.isFailure) {
+            resolvePromise(mapOf("err" to result.exceptionOrNull()?.stackTraceToString()))
+            return
+        }
+
+        when (val value = result.getOrThrow()) {
+            is Deferred<*> -> handleDeferred(value, resolvePromise)
+            else -> resolvePromise(serializeResult(value))
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun handleDeferred(deferred: Deferred<*>, resolvePromise: (Map<*, *>) -> Unit) {
+        deferred.invokeOnCompletion { ex ->
+            val response = when (ex) {
+                null -> runCatching { Json.encodeToString(deferred.getCompleted() as JsonElement) }
+                    .fold({ mapOf("ret" to it) }, { mapOf("err" to it.stackTraceToString()) })
+                is CancellationException -> mapOf("cancelled" to true, "reason" to ex.message)
+                else -> mapOf("err" to ex.stackTraceToString())
+            }
+            resolvePromise(response)
+        }
+    }
+
+    private fun serializeResult(result: Any?): Map<String, String?> =
+        runCatching { Json.encodeToString(result as? JsonElement) }
+            .fold({ mapOf("ret" to it) }, { mapOf("err" to it.stackTraceToString()) })
 }

@@ -45,13 +45,13 @@ class BubbleModule : HookModule() {
 
     @RegisterMethod
     fun configure(
-        avatar: JsonPrimitive,
-        bubble: JsonPrimitive,
-        bubbleColor: JsonPrimitive
+        avatar: Float?,
+        bubble: Float?,
+        bubbleColor: Int?
     ) {
-        avatarCurveRadius = avatar.floatOrNull ?: avatarCurveRadius
-        bubbleCurveRadius = bubble.floatOrNull ?: bubbleCurveRadius
-        chatBubbleColor = bubbleColor.intOrNull ?: chatBubbleColor
+        avatarCurveRadius = avatar ?: avatarCurveRadius
+        bubbleCurveRadius = bubble ?: bubbleCurveRadius
+        chatBubbleColor = bubbleColor ?: chatBubbleColor
     }
 
     override fun getConstants(): Map<String, JsonElement> {
