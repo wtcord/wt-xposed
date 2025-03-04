@@ -101,6 +101,9 @@ object Patches {
                         )
                 }
 
+                val tmpFile = File(bundle.parentFile, "${bundle.name}.tmp")
+                if (tmpFile.exists()) tmpFile.renameTo(bundle)
+
                 setGlobalVariable.call("__WINTRY_LOADER__", getPayloadString())
                 loadScriptFromFile.call(bundle.absolutePath, "wintry", args(2).boolean())
             }

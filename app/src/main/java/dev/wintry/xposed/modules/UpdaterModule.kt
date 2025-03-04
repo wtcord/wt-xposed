@@ -17,10 +17,13 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.request
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -64,6 +67,7 @@ class UpdaterModule: HookModule() {
         fun createHttpClient(): HttpClient = HttpClient(CIO) {
             install(HttpTimeout) {
                 requestTimeoutMillis = 30000
+                connectTimeoutMillis = 3000
             }
             install(UserAgent) {
                 agent = "WintryXposed"
@@ -107,10 +111,12 @@ class UpdaterModule: HookModule() {
         }
 
         fun fetchBundle(): Deferred<Boolean?> = CoroutineScope(Dispatchers.IO).async {
-            val targetFile = BUNDLE_FILE
+            val targetFile = File(BUNDLE_FILE.parentFile, "${BUNDLE_FILE.name}.tmp")
             val client = createHttpClient()
 
             try {
+                if (targetFile.exists()) targetFile.delete()
+
                 val revision = File(targetFile.parentFile, "${targetFile.name}.revision")
                 val info = checkForUpdates(client).await()
 
@@ -131,7 +137,15 @@ class UpdaterModule: HookModule() {
                     throw Exception(msg)
                 }
 
-                targetFile.writeBytes(response.body())
+                val channel: ByteReadChannel = response.body()
+                targetFile.outputStream().use { fileStream ->
+                    while (!channel.isClosedForRead) {
+                        val packet = channel.readRemaining(DEFAULT_BUFFER_SIZE.toLong())
+                        while (!packet.exhausted()) {
+                            fileStream.write(packet.readByteArray())
+                        }
+                    }
+                }
 
                 // Write the rev or delete if hash is non-existent
                 info.hash?.let { revision.writeText(it) } ?: revision.delete()
