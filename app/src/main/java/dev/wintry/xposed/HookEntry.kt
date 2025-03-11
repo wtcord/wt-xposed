@@ -7,6 +7,7 @@ import dev.wintry.xposed.modules.BubbleModule
 import dev.wintry.xposed.modules.FsModule
 import dev.wintry.xposed.modules.LogBoxModule
 import dev.wintry.xposed.modules.UpdaterModule
+import dev.wintry.xposed.modules.UpdaterModule.Companion.BUNDLE_FILE
 import dev.wintry.xposed.modules.base.HookModule
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -46,6 +47,9 @@ class HookEntry {
     }
 
     private fun getPayloadString(): String = Json.encodeToString(buildJsonObject {
+        putJsonObject("bundle") {
+            put("revision", runCatching { File(BUNDLE_FILE.parentFile, "${BUNDLE_FILE.name}.revision").readText() }.getOrElse { null })
+        }
         putJsonObject("loader") {
             put("name", "WintryXposed")
             put("version", BuildConfig.VERSION_NAME)
