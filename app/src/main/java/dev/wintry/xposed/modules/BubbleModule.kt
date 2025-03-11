@@ -18,16 +18,23 @@ import dev.wintry.xposed.modules.base.HookModule
 import dev.wintry.xposed.px
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.floatOrNull
-import kotlinx.serialization.json.intOrNull
 
 class BubbleModule : HookModule() {
     private var configureAccessoriesMarginHook: YukiMemberHookCreator.MemberHookCreator.Result? = null
     private var configureAuthorHook: YukiMemberHookCreator.MemberHookCreator.Result? = null
 
-    private var avatarCurveRadius = 12.px.toFloat()
-    private var bubbleCurveRadius = 12.px.toFloat()
-    private var chatBubbleColor = 0x66000000
+    private var avatarCurveRadius = DEFAULT_AVATAR_CURVE_RADIUS
+    private var bubbleCurveRadius = DEFAULT_BUBBLE_CURVE_RADIUS
+    private var chatBubbleColor = DEFAULT_BUBBLE_COLOR
+
+    companion object {
+        private val DEFAULT_AVATAR_CURVE_RADIUS = 12.px.toFloat()
+        private val DEFAULT_BUBBLE_CURVE_RADIUS = 12.px.toFloat()
+        private const val DEFAULT_BUBBLE_COLOR = 0x66000000
+        private val PADDING_SMALL = 6.px
+        private val PADDING_MEDIUM = 8.px
+        private val PADDING_LARGE = 12.px
+    }
 
     @RegisterMethod
     fun hookBubbles() {
@@ -49,20 +56,13 @@ class BubbleModule : HookModule() {
         bubble: Float?,
         bubbleColor: Int?
     ) {
-        avatarCurveRadius = avatar ?: avatarCurveRadius
-        bubbleCurveRadius = bubble ?: bubbleCurveRadius
+        avatarCurveRadius = avatar?.px ?: avatarCurveRadius
+        bubbleCurveRadius = bubble?.px ?: bubbleCurveRadius
         chatBubbleColor = bubbleColor ?: chatBubbleColor
-    }
-
-    override fun getConstants(): Map<String, JsonElement> {
-        return mapOf(
-            "available" to JsonPrimitive(true)
-        )
     }
 
     private fun hookMessageView() = with(this.packageParam) {
         val MessageView = "com.discord.chat.presentation.message.MessageView".toClass()
-
         MessageView.apply {
             configureAccessoriesMarginHook = hookConfigureAccessoriesMargin()
             configureAuthorHook = hookConfigureAuthor()
@@ -72,41 +72,27 @@ class BubbleModule : HookModule() {
     private fun Class<*>.hookConfigureAccessoriesMargin() = with(this@BubbleModule.packageParam) {
         method { name = "configureAccessoriesMargin" }.hook {
             after {
-                val binding =
-                    instanceClass!!.getDeclaredField("binding").apply { isAccessible = true }
-                        .get(instance)
-                val accessoriesView =
-                    binding.javaClass.getField("accessoriesView").get(binding) as ViewGroup
-
-                val marginLayoutParams = accessoriesView.layoutParams as MarginLayoutParams
-                val topMargin = marginLayoutParams.topMargin
-
-                marginLayoutParams.setMargins(
-                    marginLayoutParams.leftMargin,
-                    0,
-                    marginLayoutParams.rightMargin,
-                    marginLayoutParams.bottomMargin
-                )
-
-                accessoriesView.layoutParams = marginLayoutParams
-
-                // "Move" the top margin set by the original function as padding.
-                // This is made so that the padding also applies to the bubble
-                accessoriesView.setPadding(
-                    accessoriesView.paddingLeft,
-                    topMargin + accessoriesView.paddingTop,
-                    accessoriesView.paddingRight,
-                    accessoriesView.paddingBottom
-                )
+                val binding = instanceClass!!.getDeclaredField("binding").apply { isAccessible = true }.get(instance)
+                val accessoriesView = binding.javaClass.getField("accessoriesView").get(binding) as ViewGroup
+                adjustMarginsForAccessories(accessoriesView)
             }
         }
+    }
+
+    private fun adjustMarginsForAccessories(view: ViewGroup) {
+        val marginLayoutParams = view.layoutParams as MarginLayoutParams
+        val topMargin = marginLayoutParams.topMargin
+
+        marginLayoutParams.setMargins(marginLayoutParams.leftMargin, 0, marginLayoutParams.rightMargin, marginLayoutParams.bottomMargin)
+        view.layoutParams = marginLayoutParams
+
+        view.setPadding(view.paddingLeft, topMargin + view.paddingTop, view.paddingRight, view.paddingBottom)
     }
 
     private fun Class<*>.hookConfigureAuthor() = with(this@BubbleModule.packageParam) {
         method { name = "configureAuthor" }.hook {
             after {
                 val view = instance<ViewGroup>()
-
                 applyRoundedSquareProfilePicture(view)
                 applyBubbleChat(view)
             }
@@ -125,82 +111,49 @@ class BubbleModule : HookModule() {
     }
 
     private fun applyBubbleChat(viewGroup: ViewGroup) {
-        val linearLayout = viewGroup.children
-            .filterIsInstance<LinearLayout>()
-            .first { v -> v.children.any { c -> c.javaClass.simpleName == "ConstraintLayout" } }
-                as ViewGroup
-
+        val linearLayout = viewGroup.children.filterIsInstance<LinearLayout>().firstOrNull { v -> v.children.any { c -> c.javaClass.simpleName == "ConstraintLayout" } } as? ViewGroup ?: return
         applyBubbleBackground(viewGroup, linearLayout)
     }
 
-    private fun setBubbleBackground(
-        viewGroup: ViewGroup,
-        leftMargin: Int,
-        start: Boolean,
-        end: Boolean,
-    ) {
-        val bubble = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(chatBubbleColor)
-            if (start && end) {
-                cornerRadius = bubbleCurveRadius
-            } else {
-                val radii = floatArrayOf(
-                    0f,
-                    0f,
-                    0f,
-                    0f,
-                    bubbleCurveRadius,
-                    bubbleCurveRadius,
-                    bubbleCurveRadius,
-                    bubbleCurveRadius
-                ) // Curve on bottom
-                if (start) radii.reverse() // Curve on top
-                cornerRadii = radii
-            }
-        }
-
-        val wrapper = InsetDrawable(bubble, leftMargin, 0, 6.px, 0)
-        viewGroup.background = wrapper
-    }
-
     private fun applyBubbleBackground(viewGroup: ViewGroup, linearLayout: ViewGroup) {
-        // Check if the header is visible
-        val messageHeader =
-            linearLayout.children.first { c -> c.javaClass.simpleName == "ConstraintLayout" } as ViewGroup
-        val headerVisible = messageHeader.children.first().visibility != View.GONE
+        val messageHeader = linearLayout.children.firstOrNull { c -> c.javaClass.simpleName == "ConstraintLayout" } as? ViewGroup ?: return
+        val headerVisible = messageHeader.children.firstOrNull()?.visibility != View.GONE
 
         if (headerVisible) {
-            linearLayout.apply {
-                setBubbleBackground(this, 0, start = true, end = false)
-                setPadding(12.px, 8.px, 0, 0)
-                translationX = -6.px.toFloat()
-            }
+            linearLayout.setBubbleBackground(0, start = true, end = false)
+            linearLayout.setPadding(PADDING_LARGE, PADDING_MEDIUM, 0, 0)
+            linearLayout.translationX = -PADDING_SMALL.toFloat()
         } else {
             linearLayout.setPadding(0, 0, 0, 0)
         }
 
-        viewGroup.children
-            .filter { i -> i.javaClass.simpleName == "MessageAccessoriesView" }
-            .firstOrNull()?.let { accessoriesView ->
-                val messageAccessoriesDecoration =
-                    accessoriesView.javaClass.getDeclaredField("messageAccessoriesDecoration")
-                        .apply { isAccessible = true }.get(accessoriesView)
-                val leftMarginPx =
-                    messageAccessoriesDecoration.javaClass.getDeclaredField("leftMarginPx")
-                        .apply { isAccessible = true }.get(messageAccessoriesDecoration) as Int
+        viewGroup.children.firstOrNull { i -> i.javaClass.simpleName == "MessageAccessoriesView" }?.let { accessoriesView ->
+            setAccessoryBubbleBackground(accessoriesView as ViewGroup, !headerVisible)
+        }
+    }
 
-                setBubbleBackground(
-                    accessoriesView as ViewGroup,
-                    leftMarginPx,
-                    start = !headerVisible,
-                    true
-                )
+    private fun setAccessoryBubbleBackground(accessoriesView: ViewGroup, start: Boolean) {
+        val messageAccessoriesDecoration = accessoriesView.javaClass.getDeclaredField("messageAccessoriesDecoration").apply { isAccessible = true }.get(accessoriesView)
+        val leftMarginPx = messageAccessoriesDecoration.javaClass.getDeclaredField("leftMarginPx").apply { isAccessible = true }.get(messageAccessoriesDecoration) as Int
 
-                accessoriesView.apply {
-                    setPadding(12.px, if (headerVisible) 0 else 8.px, 6.px, 8.px)
-                    translationX = -6.px.toFloat()
+        accessoriesView.setBubbleBackground(leftMarginPx, start, true)
+        accessoriesView.setPadding(PADDING_LARGE, if (start) PADDING_MEDIUM else 0, PADDING_SMALL, PADDING_MEDIUM)
+        accessoriesView.translationX = -PADDING_SMALL.toFloat()
+    }
+
+    private fun ViewGroup.setBubbleBackground(leftMargin: Int, start: Boolean, end: Boolean) {
+        val bubble = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(chatBubbleColor)
+            cornerRadii = FloatArray(8) { i ->
+                when {
+                    start && end -> bubbleCurveRadius
+                    start && i < 4 -> bubbleCurveRadius // Top corners
+                    !start && i >= 4 -> bubbleCurveRadius // Bottom corners
+                    else -> 0f
                 }
             }
+        }
+        background = InsetDrawable(bubble, leftMargin, 0, PADDING_SMALL, 0)
     }
 }
