@@ -34,13 +34,14 @@ import java.io.File
 @Serializable
 data class EndpointInfo(
     val paths: ArrayList<String>,
-    val hash: String? = null
+    val hash: String? = null,
+    val version: String
 )
 
 @Serializable
 data class UpdateInfo(
     val url: String,
-    val hash: String?
+    val revision: String
 )
 
 @WintryModule
@@ -54,10 +55,11 @@ class UpdaterModule: HookModule() {
     }
 
     @RegisterMethod
-    fun updateBundle(): Deferred<JsonElement> {
+    fun fetchBundle(url: String?, revision: String?): Deferred<JsonElement> {
         return CoroutineScope(Dispatchers.IO).async {
-            val fetched = fetchBundle().await()
-            return@async JsonPrimitive(fetched)
+            val updateInfo = url?.let { u -> revision?.let { r -> UpdateInfo(u, r) } }
+            val fetched = fetchBundle(updateInfo).await()
+            JsonPrimitive(fetched)
         }
     }
 
@@ -88,7 +90,7 @@ class UpdaterModule: HookModule() {
             val client = passedClient ?: createHttpClient()
 
             try {
-                val revision = File(targetFile.parentFile, "${targetFile.name}.revision")
+                val revisionFile = File(targetFile.parentFile, "${targetFile.name}.revision")
                 val infoRes = client.get(InitConfig.Current.baseUrl + "info.json")
 
                 if (!infoRes.status.isSuccess()) {
@@ -98,9 +100,9 @@ class UpdaterModule: HookModule() {
                 }
 
                 val info = Json.decodeFromString<EndpointInfo>(infoRes.bodyAsText())
-
-                if (info.hash == null || !revision.exists() || info.hash != revision.readText()) {
-                    return@async UpdateInfo(constructUrl(info.paths), info.hash)
+                val revision = info.version + "#" + info.hash
+                if (info.hash == null || !revisionFile.exists() || revision != revisionFile.readText()) {
+                    return@async UpdateInfo(constructUrl(info.paths), revision)
                 }
 
                 return@async null
@@ -110,15 +112,13 @@ class UpdaterModule: HookModule() {
             }
         }
 
-        fun fetchBundle(): Deferred<Boolean?> = CoroutineScope(Dispatchers.IO).async {
-            val targetFile = File(BUNDLE_FILE.parentFile, "${BUNDLE_FILE.name}.tmp")
+        fun fetchBundle(updateInfo: UpdateInfo? = null): Deferred<Boolean?> = CoroutineScope(Dispatchers.IO).async {
+            val targetFile = BUNDLE_FILE
             val client = createHttpClient()
 
             try {
-                if (targetFile.exists()) targetFile.delete()
-
                 val revision = File(targetFile.parentFile, "${targetFile.name}.revision")
-                val info = checkForUpdates(client).await()
+                val info = updateInfo ?: checkForUpdates(client).await()
 
                 if (info == null) {
                     YLog.info("No update available.")
@@ -147,8 +147,8 @@ class UpdaterModule: HookModule() {
                     }
                 }
 
-                // Write the rev or delete if hash is non-existent
-                info.hash?.let { revision.writeText(it) } ?: revision.delete()
+                // Write the revision
+                info.revision.let { revision.writeText(it) }
 
                 YLog.info("Fetched JS bundle successfully!")
                 return@async true

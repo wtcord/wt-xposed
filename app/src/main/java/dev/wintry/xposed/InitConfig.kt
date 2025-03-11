@@ -10,7 +10,9 @@ import java.io.File
 data class InitConfig(
     val baseUrl: String = DEFAULT_BASE_URL,
     val forceUpdate: Boolean = false,
+    val skipUpdate: Boolean = false,
     val bundlePath: String? = null,
+    val safeMode: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_BASE_URL = "http://192.168.0.157:4040/" // Change to the real one once it's real

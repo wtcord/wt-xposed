@@ -1,7 +1,6 @@
 package dev.wintry.xposed
 
 import android.widget.Toast
-import com.highcapable.yukihookapi.hook.core.finder.members.MethodFinder
 import com.highcapable.yukihookapi.hook.factory.method
 import com.highcapable.yukihookapi.hook.param.HookParam
 import com.highcapable.yukihookapi.hook.param.PackageParam
@@ -40,7 +39,10 @@ data class CallInfo (
 )
 
 fun decodeJsonPrimitive(element: JsonPrimitive, clazz: Class<*>, nullable: Boolean): Any? {
-    element.contentOrNull.takeIf { it != null || nullable } ?: throw IllegalArgumentException("Element is null")
+    if (element.contentOrNull == null) {
+        if (!nullable) throw IllegalArgumentException("Element is null")
+        return null
+    }
 
     // This may hurt your soul, I'm sorry
     return when (clazz) {
@@ -61,26 +63,29 @@ object Patches {
     ) {
         val beforeHook: HookParam.() -> Unit = {
             val bundle = UpdaterModule.BUNDLE_FILE
-            val fetchTask = UpdaterModule.fetchBundle()
 
-            fetchTask.invokeOnCompletion { ex ->
-                if (ex == null || ex is CancellationException) return@invokeOnCompletion
+            if (!InitConfig.Current.skipUpdate || !bundle.exists()) {
+                val fetchTask = UpdaterModule.fetchBundle()
 
-                val message = buildString {
-                    append("Failed to fetch bundle, ")
-                    if (bundle.exists()) append("using cached version")
-                    else append("Wintry may not load")
-                    append(": ${ex.message}")
+                fetchTask.invokeOnCompletion { ex ->
+                    if (ex == null || ex is CancellationException) return@invokeOnCompletion
+
+                    val message = buildString {
+                        append("Failed to fetch bundle, ")
+                        if (bundle.exists()) append("using cached version")
+                        else append("Wintry may not load")
+                        append(": ${ex.message}")
+                    }
+
+                    RuntimeHelper.runOnUiThread {
+                        //? Show alert dialog when cache is not available
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    }
                 }
 
-                RuntimeHelper.runOnUiThread {
-                    //? Show alert dialog when cache is not available
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                if (!bundle.exists() || InitConfig.Current.forceUpdate) {
+                    runCatching { runBlocking { fetchTask.await() } }
                 }
-            }
-
-            if (!bundle.exists() || InitConfig.Current.forceUpdate) {
-                runCatching { runBlocking { fetchTask.await() } }
             }
 
             if (bundle.exists()) {
@@ -102,10 +107,12 @@ object Patches {
                 }
 
                 val tmpFile = File(bundle.parentFile, "${bundle.name}.tmp")
-                if (tmpFile.exists()) tmpFile.renameTo(bundle)
+
+                // Create a copy of the bundle to avoid overwriting the original
+                bundle.copyTo(tmpFile, overwrite = true)
 
                 setGlobalVariable.call("__WINTRY_LOADER__", getPayloadString())
-                loadScriptFromFile.call(bundle.absolutePath, "wintry", args(2).boolean())
+                loadScriptFromFile.call(tmpFile.absolutePath, "wintry", args(2).boolean())
             }
         }
 
