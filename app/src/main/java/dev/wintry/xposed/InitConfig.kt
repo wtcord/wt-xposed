@@ -15,7 +15,7 @@ data class InitConfig(
     val safeMode: Boolean = false,
 ) {
     companion object {
-        const val DEFAULT_BASE_URL = "http://192.168.0.157:4040/" // Change to the real one once it's real
+        const val DEFAULT_BASE_URL = "https://github.com/pylixonly/wintry/releases/latest/download/"
         val Current: InitConfig by lazy {
             try {
                 val file = File(wintryDir, "init_config.json")
