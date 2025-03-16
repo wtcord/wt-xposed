@@ -71,11 +71,6 @@ class HookEntry {
                     }
                 }
             }
-            putJsonObject("preload") {
-                for (json in File(wintryDir, "preload").walk()) {
-                    if (json.isFile) put(json.name, json.readText())
-                }
-            }
         }
     })
 }

@@ -106,6 +106,14 @@ object Patches {
                         )
                 }
 
+                for (file in File(wintryDir, "kv").walk()) {
+                    if (file.isFile)
+                        setGlobalVariable.call(
+                            "__wt_kv/${file.name}",
+                            Json.encodeToString(file.readText())
+                        )
+                }
+
                 val tmpFile = File(bundle.parentFile, "${bundle.name}.tmp")
 
                 // Create a copy of the bundle to avoid overwriting the original
