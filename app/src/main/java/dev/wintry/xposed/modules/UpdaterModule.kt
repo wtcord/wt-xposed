@@ -137,6 +137,8 @@ class UpdaterModule: HookModule() {
                     throw Exception(msg)
                 }
 
+                targetFile.parentFile?.mkdirs()
+
                 val channel: ByteReadChannel = response.body()
                 targetFile.outputStream().use { fileStream ->
                     while (!channel.isClosedForRead) {
@@ -152,8 +154,6 @@ class UpdaterModule: HookModule() {
 
                 YLog.info("Fetched JS bundle successfully!")
                 return@async true
-            } catch (e: Throwable) {
-                throw e
             } finally {
                 client.close()
             }
