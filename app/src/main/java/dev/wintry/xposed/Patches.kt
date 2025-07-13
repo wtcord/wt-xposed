@@ -5,6 +5,7 @@ import com.highcapable.yukihookapi.hook.factory.method
 import com.highcapable.yukihookapi.hook.param.HookParam
 import com.highcapable.yukihookapi.hook.param.PackageParam
 import com.highcapable.yukihookapi.hook.type.android.AssetManagerClass
+import com.highcapable.yukihookapi.hook.type.android.ResourcesClass
 import com.highcapable.yukihookapi.hook.type.java.BooleanType
 import com.highcapable.yukihookapi.hook.type.java.MapClass
 import com.highcapable.yukihookapi.hook.type.java.StringClass
@@ -57,6 +58,20 @@ fun decodeJsonPrimitive(element: JsonPrimitive, clazz: Class<*>, nullable: Boole
 }
 
 object Patches {
+    // Temp fix: Fighting the side effects of changing the package name in the manifest
+    fun PackageParam.hookPackageResourcesIdentifier() {
+        if (packageName != "com.discord") {
+            ResourcesClass.method {
+                name = "getIdentifier"
+                param(String::class.java, String::class.java, String::class.java)
+            }.hook {
+                before {
+                    if (args[2] == packageName) args[2] = "com.discord"
+                }
+            }
+        }
+    }
+
     fun PackageParam.hookScriptLoader(
         catalystInstanceImplClass: Class<*>,
         getPayloadString: () -> String,

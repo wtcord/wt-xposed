@@ -2,6 +2,7 @@ package dev.wintry.xposed
 
 import com.highcapable.yukihookapi.hook.param.PackageParam
 import dev.wintry.xposed.Patches.hookImageQueryCache
+import dev.wintry.xposed.Patches.hookPackageResourcesIdentifier
 import dev.wintry.xposed.Patches.hookScriptLoader
 import dev.wintry.xposed.modules.BubbleModule
 import dev.wintry.xposed.modules.FsModule
@@ -40,6 +41,7 @@ class HookEntry {
         // Get the activity
         RuntimeHelper.setupHook(this)
 
+        hookPackageResourcesIdentifier()
         hookImageQueryCache() // For bridging
         hookScriptLoader(catalystInstanceImplClass, ::getPayloadString)
 
