@@ -52,6 +52,7 @@ dependencies {
     compileOnly(libs.xposed)
 
     implementation(libs.yuki.api)
+    implementation(libs.kavaref.core)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

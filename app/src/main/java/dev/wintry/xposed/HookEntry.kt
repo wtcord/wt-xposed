@@ -1,5 +1,6 @@
 package dev.wintry.xposed
 
+import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.hook.param.PackageParam
 import dev.wintry.xposed.Patches.hookImageQueryCache
 import dev.wintry.xposed.Patches.hookPackageResourcesIdentifier
@@ -82,7 +83,7 @@ class HookEntry {
 
         hookPackageResourcesIdentifier()
         hookImageQueryCache() // For bridging
-        hookScriptLoader(catalystInstanceImplClass, ::getPayloadString)
+        hookScriptLoader(catalystInstanceImplClass.resolve(), ::getPayloadString)
 
         HookModules.forEach { it.onHook(packageParam) }
     }

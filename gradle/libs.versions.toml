@@ -1,6 +1,6 @@
 [versions]
-agp = "8.10.1"
-kotlin = "2.1.0"
+agp = "8.12.0"
+kotlin = "2.2.0"
 coreKtx = "1.16.0"
 junit = "4.13.2"
 junitVersion = "1.2.1"
@@ -8,16 +8,17 @@ espressoCore = "3.6.1"
 appcompat = "1.7.1"
 material = "1.12.0"
 xposed = "82"
-yukiApi = "1.2.1"
-ksp = "2.1.0-1.0.29"
+yukiApi = "1.3.0"
+kavaref-core = "1.0.1"
+ksp = "2.2.0-2.0.2"
 aliuhook = "main-SNAPSHOT"
 libunbound = "1.0.0"
-kotlinxSerializationJson = "1.8.0"
+kotlinxSerializationJson = "1.9.0"
 kotlinxCoroutinesAndroid = "1.10.1"
-ktorClientCore = "3.1.1"
-ktorClientCio = "3.1.1"
-kotlinReflect = "2.1.20-RC"
-kotlinSerialization = "2.1.0"
+ktorClientCore = "3.2.3"
+ktorClientCio = "3.2.3"
+kotlinReflect = "2.1.20"
+kotlinSerialization = "2.2.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -35,6 +36,7 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktorClientCore" }
 ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktorClientCio" }
 kotlin-reflect = { group = "org.jetbrains.kotlin", name = "kotlin-reflect", version.ref = "kotlinReflect" }
+kavaref-core = { module = "com.highcapable.kavaref:kavaref-core", version.ref = "kavaref-core" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

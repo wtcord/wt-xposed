@@ -1,11 +1,9 @@
 package dev.wintry.xposed
 
 import android.app.Activity
-import com.highcapable.yukihookapi.hook.factory.method
+import android.os.Bundle
+import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.hook.param.PackageParam
-import com.highcapable.yukihookapi.hook.type.android.ActivityClass
-import com.highcapable.yukihookapi.hook.type.android.BundleClass
-import com.highcapable.yukihookapi.hook.type.java.UnitType
 import java.lang.ref.WeakReference
 
 object RuntimeHelper {
@@ -13,24 +11,20 @@ object RuntimeHelper {
     private var onActivityCreateListener: MutableList<(Activity) -> Unit>? = mutableListOf()
 
     fun setupHook(packageParam: PackageParam): Unit = with (packageParam) {
-        ActivityClass.method {
+        Activity::class.resolve().firstMethod {
             name = "onCreate"
-            param(BundleClass)
-            returnType = UnitType
-        }.hook {
-            after {
-                if (activityRef != null) return@after
+            parameters(Bundle::class)
+        }.hook().after {
+            if (activityRef != null) return@after
 
-                activityRef = WeakReference(instance<Activity>())
+            activityRef = WeakReference(instance<Activity>())
 
-                if (onActivityCreateListener!!.isNotEmpty()) {
-                    onActivityCreateListener!!.forEach { it(instance()) }
-                    onActivityCreateListener!!.clear()
-                    onActivityCreateListener = null
-                }
+            if (onActivityCreateListener!!.isNotEmpty()) {
+                onActivityCreateListener!!.forEach { it(instance()) }
+                onActivityCreateListener!!.clear()
+                onActivityCreateListener = null
             }
         }
-
     }
 
     fun getCurrentActivity(): Activity? = activityRef?.get()

@@ -1,14 +1,13 @@
 package dev.wintry.xposed
 
+import android.content.res.AssetManager
+import android.content.res.Resources
 import android.widget.Toast
-import com.highcapable.yukihookapi.hook.factory.method
+import com.highcapable.kavaref.KavaRef
+import com.highcapable.kavaref.KavaRef.Companion.resolve
+import com.highcapable.yukihookapi.hook.core.api.reflect.invokeOriginal
 import com.highcapable.yukihookapi.hook.param.HookParam
 import com.highcapable.yukihookapi.hook.param.PackageParam
-import com.highcapable.yukihookapi.hook.type.android.AssetManagerClass
-import com.highcapable.yukihookapi.hook.type.android.ResourcesClass
-import com.highcapable.yukihookapi.hook.type.java.BooleanType
-import com.highcapable.yukihookapi.hook.type.java.MapClass
-import com.highcapable.yukihookapi.hook.type.java.StringClass
 import dev.wintry.xposed.HookEntry.Companion.HookModules
 import dev.wintry.xposed.HookEntry.Companion.wintryDir
 import dev.wintry.xposed.modules.UpdaterModule
@@ -61,19 +60,18 @@ object Patches {
     // Temp fix: Fighting the side effects of changing the package name in the manifest
     fun PackageParam.hookPackageResourcesIdentifier() {
         if (packageName != "com.discord") {
-            ResourcesClass.method {
-                name = "getIdentifier"
-                param(String::class.java, String::class.java, String::class.java)
-            }.hook {
-                before {
+            Resources::class.resolve()
+                .firstMethod {
+                    name = "getIdentifier"
+                    parameters(String::class, String::class, String::class)
+                }.hook().before {
                     if (args[2] == packageName) args[2] = "com.discord"
                 }
-            }
         }
     }
 
     fun PackageParam.hookScriptLoader(
-        catalystInstanceImplClass: Class<*>,
+        catalystInstanceImplClass: KavaRef.MemberScope<Any>,
         getPayloadString: () -> String,
     ) {
         val beforeHook: HookParam.() -> Unit = {
@@ -103,18 +101,18 @@ object Patches {
             }
 
             if (bundle.exists()) {
-                val getOriginalFunc = { m: String ->
-                    catalystInstanceImplClass.method { name = m }.get(instance).original()
-                }
-
-                val setGlobalVariable = getOriginalFunc("setGlobalVariable")
-                val loadScriptFromFile = getOriginalFunc("loadScriptFromFile")
+                val setGlobalVariable =
+                    catalystInstanceImplClass.firstMethod { name = "setGlobalVariable" }
+                        .of(instance)
+                val loadScriptFromFile =
+                    catalystInstanceImplClass.firstMethod { name = "loadScriptFromFile" }
+                        .of(instance)
 
                 val preloadDir = File(wintryDir, "preload_scripts")
                 if (preloadDir.exists()) {
                     for (script in preloadDir.walk()) {
                         if (script.isFile && script.extension == "js") {
-                            loadScriptFromFile.call(
+                            loadScriptFromFile.invokeOriginal(
                                 script.absolutePath,
                                 "preload:${script.name}",
                                 args(2).boolean()
@@ -127,7 +125,7 @@ object Patches {
                 if (kvDir.exists()) {
                     for (file in kvDir.walk()) {
                         if (file.isFile) {
-                            setGlobalVariable.call(
+                            setGlobalVariable.invokeOriginal(
                                 "__wt_kv/${file.name}",
                                 Json.encodeToString(file.readText())
                             )
@@ -140,20 +138,20 @@ object Patches {
                 // Create a copy of the bundle to avoid overwriting the original
                 bundle.copyTo(tmpFile, overwrite = true)
 
-                setGlobalVariable.call("__WINTRY_LOADER__", getPayloadString())
-                loadScriptFromFile.call(tmpFile.absolutePath, "wintry", args(2).boolean())
+                setGlobalVariable.invokeOriginal("__WINTRY_LOADER__", getPayloadString())
+                loadScriptFromFile.invokeOriginal(tmpFile.absolutePath, "wintry", args(2).boolean())
             }
         }
 
         catalystInstanceImplClass.apply {
-            method {
+            firstMethod {
                 name = "loadScriptFromAssets"
-                param(AssetManagerClass, StringClass, BooleanType)
+                parameters(AssetManager::class, String::class, Boolean::class)
             }.hook().before(beforeHook)
 
-            method {
+            firstMethod {
                 name = "loadScriptFromFile"
-                param(StringClass, StringClass, BooleanType)
+                parameters(String::class, String::class, Boolean::class)
             }.hook().before(beforeHook)
         }
     }
@@ -164,31 +162,48 @@ object Patches {
     //
     // This approach still can be optimized (a lot of parsing is done here), but not worth it for now since native functions are only called once in a while
     fun PackageParam.hookImageQueryCache() {
-        val imageLoaderModuleClass = "com.facebook.react.modules.image.ImageLoaderModule".toClass()
-        val toArrayList = "com.facebook.react.bridge.ReadableNativeArray".toClass().method {
-            name = "toArrayList"
-        }
+        val imageLoaderModuleClass =
+            "com.facebook.react.modules.image.ImageLoaderModule".toClass().resolve()
+        val readableArrayClass = "com.facebook.react.bridge.ReadableNativeArray".toClass().resolve()
+        val toArrayListMethod = readableArrayClass.firstMethod { name = "toArrayList" }
 
-        imageLoaderModuleClass.method { name = "queryCache" }
-            .hook()
-            .before {
-                @Suppress("UNCHECKED_CAST")
-                val uris = toArrayList.get(args[0]).call() as? ArrayList<String> ?: return@before
-                if (uris.firstOrNull() != "__wintry_bridge" || uris.size <= 1) return@before
-
-                val resolvePromise = args[1]?.javaClass?.method { name = "resolve" }?.get(args[1])
-                    ?: return@before
-
-                val makeNativeMap = "com.facebook.react.bridge.Arguments".toClass().method {
-                    name = "makeNativeMap"
-                    param(MapClass)
-                }.get()
-
-                val result = runCatching { processCall(uris[1]) }
-                handleResult(result) { resolvePromise.call(makeNativeMap.call(it)) }
-
-                this.result = null
+        val makeNativeMapMethod = "com.facebook.react.bridge.Arguments"
+            .toClass()
+            .resolve()
+            .firstMethod {
+                name = "makeNativeMap"
+                parameters(Map::class)
             }
+
+        val queryCacheMethod = imageLoaderModuleClass.firstMethod { name = "queryCache" }
+
+        queryCacheMethod.hook().before {
+            val inputArray = args[0]
+            val promiseArg = args[1]
+
+            // Sanity check early
+            val uris =
+                toArrayListMethod.of(inputArray).invokeOriginal() as? ArrayList<*> ?: return@before
+            if (uris.size <= 1 || uris[0] != "__wintry_bridge") return@before
+
+            // Cast items after we know it's valid
+            @Suppress("UNCHECKED_CAST")
+            val uriList = uris as ArrayList<String>
+
+            val resolvePromiseMethod = promiseArg
+                ?.javaClass?.resolve()
+                ?.firstMethod { name = "resolve" }
+                ?.of(promiseArg)
+                ?: return@before
+
+            val result = runCatching { processCall(uriList[1]) }
+            handleResult(result) { processedResult ->
+                val nativeMap = makeNativeMapMethod.invokeOriginal(processedResult)
+                resolvePromiseMethod.invokeOriginal(nativeMap)
+            }
+
+            this.result = null
+        }
     }
 
     private fun processCall(callInfoJson: String): Any? {
@@ -206,7 +221,7 @@ object Patches {
         }.toTypedArray())
     }
 
-    private fun PackageParam.handleResult(result: Result<Any?>, resolvePromise: (Map<*, *>) -> Unit) {
+    private fun handleResult(result: Result<Any?>, resolvePromise: (Map<*, *>) -> Unit) {
         if (result.isFailure) {
             resolvePromise(mapOf("err" to result.exceptionOrNull()?.stackTraceToString()))
             return

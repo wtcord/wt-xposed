@@ -1,6 +1,5 @@
 package dev.wintry.xposed.modules
 
-import android.content.res.Resources
 import android.graphics.Outline
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
@@ -11,13 +10,12 @@ import android.view.ViewOutlineProvider
 import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.core.view.children
+import com.highcapable.kavaref.KavaRef
+import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.hook.core.YukiMemberHookCreator
-import com.highcapable.yukihookapi.hook.factory.method
 import dev.wintry.xposed.modules.annotations.RegisterMethod
 import dev.wintry.xposed.modules.base.HookModule
 import dev.wintry.xposed.px
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 
 class BubbleModule : HookModule() {
     private var configureAccessoriesMarginHook: YukiMemberHookCreator.MemberHookCreator.Result? = null
@@ -62,15 +60,16 @@ class BubbleModule : HookModule() {
     }
 
     private fun hookMessageView() = with(this.packageParam) {
-        val MessageView = "com.discord.chat.presentation.message.MessageView".toClass()
+        val MessageView = "com.discord.chat.presentation.message.MessageView".toClass().resolve()
         MessageView.apply {
             configureAccessoriesMarginHook = hookConfigureAccessoriesMargin()
             configureAuthorHook = hookConfigureAuthor()
         }
     }
 
-    private fun Class<*>.hookConfigureAccessoriesMargin() = with(this@BubbleModule.packageParam) {
-        method { name = "configureAccessoriesMargin" }.hook {
+    private fun KavaRef.MemberScope<*>.hookConfigureAccessoriesMargin() =
+        with(this@BubbleModule.packageParam) {
+            firstMethod { name = "configureAccessoriesMargin" }.hook {
             after {
                 val binding = instanceClass!!.getDeclaredField("binding").apply { isAccessible = true }.get(instance)
                 val accessoriesView = binding.javaClass.getField("accessoriesView").get(binding) as ViewGroup
@@ -89,8 +88,9 @@ class BubbleModule : HookModule() {
         view.setPadding(view.paddingLeft, topMargin + view.paddingTop, view.paddingRight, view.paddingBottom)
     }
 
-    private fun Class<*>.hookConfigureAuthor() = with(this@BubbleModule.packageParam) {
-        method { name = "configureAuthor" }.hook {
+    private fun KavaRef.MemberScope<*>.hookConfigureAuthor() =
+        with(this@BubbleModule.packageParam) {
+            firstMethod { name = "configureAuthor" }.hook {
             after {
                 val view = instance<ViewGroup>()
                 applyRoundedSquareProfilePicture(view)
