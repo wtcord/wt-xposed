@@ -10,15 +10,13 @@ abstract class HookModule() {
 
     internal lateinit var packageParam: PackageParam
 
-    fun getRegisteredFunctions(): List<Pair<String, Int>> {
-        return this::class
-            .members
-            .filter { it.annotations.any { annotation -> annotation is RegisterMethod } }
-            .map { member ->
-                val annotation = member.annotations.find { it is RegisterMethod } as RegisterMethod
-                member.name to annotation.version
-            }
-    }
+    val registeredFunctions = this::class
+        .members
+        .filter { it.annotations.any { annotation -> annotation is RegisterMethod } }
+        .map { member ->
+            val annotation = member.annotations.find { it is RegisterMethod } as RegisterMethod
+            member.name to annotation.version
+        }
 
     open fun getConstants(): Map<String, JsonElement> {
         return mapOf()

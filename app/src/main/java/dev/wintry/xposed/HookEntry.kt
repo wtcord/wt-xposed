@@ -8,9 +8,9 @@ import dev.wintry.xposed.modules.BubbleModule
 import dev.wintry.xposed.modules.FsModule
 import dev.wintry.xposed.modules.LogBoxModule
 import dev.wintry.xposed.modules.UpdaterModule
-import dev.wintry.xposed.modules.UpdaterModule.Companion.BUNDLE_FILE
 import dev.wintry.xposed.modules.base.HookModule
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
@@ -33,6 +33,45 @@ class HookEntry {
         )
     }
 
+    private fun getPayloadString(): String {
+        val json = Json { encodeDefaults = true }
+
+        val encodedInitConfig = json.encodeToJsonElement(InitConfig.Current)
+
+        val moduleSnapshots = HookModules.associate { module ->
+            val functions = module.registeredFunctions
+            val constants = module.getConstants()
+            module.name to (functions to constants)
+        }
+
+        val modulesMap = moduleSnapshots.mapValues { (_, pair) ->
+            val (functions, constants) = pair
+            buildJsonObject {
+                putJsonObject("functions") {
+                    for ((name, version) in functions) {
+                        put(name, version)
+                    }
+                }
+                put("constants", json.encodeToJsonElement(constants))
+            }
+        }
+
+        val finalJson = buildJsonObject {
+            putJsonObject("loader") {
+                put("name", "WintryXposed")
+                put("version", BuildConfig.VERSION_NAME)
+                put("initConfig", encodedInitConfig)
+                putJsonObject("constants") {
+                    put("WINTRY_DIR", wintryDir.absolutePath)
+                    put("DEFAULT_BASE_URL", InitConfig.DEFAULT_BASE_URL)
+                }
+                put("modules", JsonObject(modulesMap))
+            }
+        }
+
+        return json.encodeToString(finalJson)
+    }
+
     fun PackageParam.loadWintry() {
         val catalystInstanceImplClass = "com.facebook.react.bridge.CatalystInstanceImpl".toClassOrNull() ?: return
 
@@ -48,31 +87,4 @@ class HookEntry {
         HookModules.forEach { it.onHook(packageParam) }
     }
 
-    private fun getPayloadString(): String = Json.encodeToString(buildJsonObject {
-        putJsonObject("bundle") {
-            put("revision", runCatching { File(BUNDLE_FILE.parentFile, "${BUNDLE_FILE.name}.revision").readText() }.getOrElse { null })
-        }
-        putJsonObject("loader") {
-            put("name", "WintryXposed")
-            put("version", BuildConfig.VERSION_NAME)
-            put("initConfig", Json { encodeDefaults = true }.encodeToJsonElement(InitConfig.Current))
-            putJsonObject("constants") {
-                put("WINTRY_DIR", wintryDir.absolutePath)
-                put("DEFAULT_BASE_URL", InitConfig.DEFAULT_BASE_URL)
-            }
-            putJsonObject("modules") {
-                for (m in HookModules) {
-                    putJsonObject(m.name) {
-                        putJsonObject("functions") {
-                            val registeredFunction = m.getRegisteredFunctions()
-                            for ((name, version) in registeredFunction) {
-                                put(name, version)
-                            }
-                        }
-                        put("constants", Json.encodeToJsonElement(m.getConstants()))
-                    }
-                }
-            }
-        }
-    })
 }

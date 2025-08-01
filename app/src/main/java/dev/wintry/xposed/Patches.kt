@@ -93,7 +93,6 @@ object Patches {
                     }
 
                     RuntimeHelper.runOnUiThread {
-                        //? Show alert dialog when cache is not available
                         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                     }
                 }
@@ -104,7 +103,6 @@ object Patches {
             }
 
             if (bundle.exists()) {
-                // Get some required functions
                 val getOriginalFunc = { m: String ->
                     catalystInstanceImplClass.method { name = m }.get(instance).original()
                 }
@@ -112,21 +110,29 @@ object Patches {
                 val setGlobalVariable = getOriginalFunc("setGlobalVariable")
                 val loadScriptFromFile = getOriginalFunc("loadScriptFromFile")
 
-                for (script in File(wintryDir, "preload_scripts").walk()) {
-                    if (script.isFile && script.extension == "js")
-                        loadScriptFromFile.call(
-                            script.absolutePath,
-                            "preload:${script.name}",
-                            args(2).boolean()
-                        )
+                val preloadDir = File(wintryDir, "preload_scripts")
+                if (preloadDir.exists()) {
+                    for (script in preloadDir.walk()) {
+                        if (script.isFile && script.extension == "js") {
+                            loadScriptFromFile.call(
+                                script.absolutePath,
+                                "preload:${script.name}",
+                                args(2).boolean()
+                            )
+                        }
+                    }
                 }
 
-                for (file in File(wintryDir, "kv").walk()) {
-                    if (file.isFile)
-                        setGlobalVariable.call(
-                            "__wt_kv/${file.name}",
-                            Json.encodeToString(file.readText())
-                        )
+                val kvDir = File(wintryDir, "kv")
+                if (kvDir.exists()) {
+                    for (file in kvDir.walk()) {
+                        if (file.isFile) {
+                            setGlobalVariable.call(
+                                "__wt_kv/${file.name}",
+                                Json.encodeToString(file.readText())
+                            )
+                        }
+                    }
                 }
 
                 val tmpFile = File(bundle.parentFile, "${bundle.name}.tmp")
