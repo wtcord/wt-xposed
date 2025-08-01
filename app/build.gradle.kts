@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "dev.wintry.xposed"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.wintry.xposed"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1002
         versionName = "1.0.2"
 
