@@ -71,7 +71,7 @@ object Patches {
     }
 
     fun PackageParam.hookScriptLoader(
-        catalystInstanceImplClass: KavaRef.MemberScope<Any>,
+        jsBundleLoaderDelegateClasses: Array<KavaRef.MemberScope<Any>>,
         getPayloadString: () -> String,
     ) {
         val beforeHook: HookParam.() -> Unit = {
@@ -101,12 +101,44 @@ object Patches {
             }
 
             if (bundle.exists()) {
+                val clazz = instance.javaClass.resolve()
+
+                val loadScriptFromFile = clazz
+                    .firstMethod { name = "loadScriptFromFile" }
+                    .of(instance)
+
+                // TODO: Only in CatalystInstanceImpl, remove once CatalystInstanceImpl is totally obsolete
+                val setGlobalVariableFunc = clazz
+                    .optional(silent = true)
+                    .firstMethodOrNull { name = "setGlobalVariable" }
+                    ?.of(instance)
+
+                val async = args(2).boolean()
+
                 val setGlobalVariable =
-                    catalystInstanceImplClass.firstMethod { name = "setGlobalVariable" }
-                        .of(instance)
-                val loadScriptFromFile =
-                    catalystInstanceImplClass.firstMethod { name = "loadScriptFromFile" }
-                        .of(instance)
+                    if (setGlobalVariableFunc != null) { key: String, value: String ->
+                        setGlobalVariableFunc.invokeOriginal(key, value)
+                    } else { key: String, value: String ->
+                        // Bridgeless mode lacks a direct `setGlobalVariable` method,
+                        // so we fall back to injecting a script file that sets the variable manually.
+                        // This workaround is slower and a bit hacky, but works for now
+                        val tmpScript =
+                            File(appContext!!.cacheDir, "wt_setGlobalVariableTemp/$key.js")
+                        tmpScript.parentFile?.mkdirs()
+
+                        tmpScript.bufferedWriter().use { writer ->
+                            writer.write("this[")
+                            writer.write(Json.encodeToString(key))
+                            writer.write("]=")
+                            writer.write(value)
+                        }
+
+                        loadScriptFromFile.invokeOriginal(
+                            tmpScript.absolutePath,
+                            tmpScript.name,
+                            async
+                        )
+                    }
 
                 val preloadDir = File(wintryDir, "preload_scripts")
                 if (preloadDir.exists()) {
@@ -115,7 +147,7 @@ object Patches {
                             loadScriptFromFile.invokeOriginal(
                                 script.absolutePath,
                                 "preload:${script.name}",
-                                args(2).boolean()
+                                async
                             )
                         }
                     }
@@ -125,7 +157,7 @@ object Patches {
                 if (kvDir.exists()) {
                     for (file in kvDir.walk()) {
                         if (file.isFile) {
-                            setGlobalVariable.invokeOriginal(
+                            setGlobalVariable(
                                 "__wt_kv/${file.name}",
                                 Json.encodeToString(file.readText())
                             )
@@ -138,12 +170,13 @@ object Patches {
                 // Create a copy of the bundle to avoid overwriting the original
                 bundle.copyTo(tmpFile, overwrite = true)
 
-                setGlobalVariable.invokeOriginal("__WINTRY_LOADER__", getPayloadString())
-                loadScriptFromFile.invokeOriginal(tmpFile.absolutePath, "wintry", args(2).boolean())
+                setGlobalVariable("__WINTRY_LOADER__", getPayloadString())
+                loadScriptFromFile.invokeOriginal(tmpFile.absolutePath, "wintry", async)
             }
         }
 
-        catalystInstanceImplClass.apply {
+        jsBundleLoaderDelegateClasses.forEach {
+            it.apply {
             firstMethod {
                 name = "loadScriptFromAssets"
                 parameters(AssetManager::class, String::class, Boolean::class)
@@ -153,6 +186,7 @@ object Patches {
                 name = "loadScriptFromFile"
                 parameters(String::class, String::class, Boolean::class)
             }.hook().before(beforeHook)
+            }
         }
     }
 

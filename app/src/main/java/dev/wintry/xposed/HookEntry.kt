@@ -74,7 +74,10 @@ class HookEntry {
     }
 
     fun PackageParam.loadWintry() {
+        // TODO: CatalystInstanceImpl is obsolete since Bridgeless, can be removed once Bridgeless is adopted across all Discord release channels
         val catalystInstanceImplClass = "com.facebook.react.bridge.CatalystInstanceImpl".toClassOrNull() ?: return
+        val reactInstanceJSLoaderClass =
+            "com.facebook.react.runtime.ReactInstance$1".toClassOrNull() ?: return
 
         packageParam = this
 
@@ -83,7 +86,13 @@ class HookEntry {
 
         hookPackageResourcesIdentifier()
         hookImageQueryCache() // For bridging
-        hookScriptLoader(catalystInstanceImplClass.resolve(), ::getPayloadString)
+        hookScriptLoader(
+            arrayOf(
+                reactInstanceJSLoaderClass.resolve(),
+                catalystInstanceImplClass.resolve()
+            ),
+            ::getPayloadString
+        )
 
         HookModules.forEach { it.onHook(packageParam) }
     }
